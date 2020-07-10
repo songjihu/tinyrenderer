@@ -8,7 +8,8 @@
 
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red = TGAColor(255, 0, 0, 255);
-const TGAColor green = TGAColor(0, 128, 0, 255);
+const TGAColor green = TGAColor(0, 128, 0, 255); 
+const TGAColor blue = TGAColor(0, 0, 255, 255);
 
 Model* model = NULL;
 const int width = 800;
@@ -29,39 +30,35 @@ Vec3f barycentric(Vec2i* pts, Vec2i P) {
     return Vec3f(1.f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
 }
 
+void rasterize(Vec2i p0, Vec2i p1, TGAImage& image, TGAColor color, int ybuffer[]) {
+    if (p0.x > p1.x) {
+        std::swap(p0, p1);//确保从左到右
+    }
+    for (int x = p0.x; x <= p1.x; x++) {
+        float t = (x - p0.x) / (float)(p1.x - p0.x);//从左到右移动的比例
+        int y = p0.y * (1. - t) + p1.y * t;//计算距离y
+        if (ybuffer[x] < y) {
+            ybuffer[x] = y;//用最近的取代
+            for(int i=0;i<16;i++)image.set(x, i, color);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
 
 
-    if (2 == argc) {
-        model = new Model(argv[1]);
-    }
-    else {
-        model = new Model("obj/african_head/african_head.obj");
-    }
-    
-    TGAImage image(width, height, TGAImage::RGB);
-    Vec3f light_dir(0, 0, -1);
-    for (int i = 0; i < model->nfaces(); i++) {
-        std::vector<int> face = model->face(i);
-        Vec2i screen_coords[3];
-        Vec3f world_coords[3];
-        for (int j = 0; j < 3; j++) {
-            Vec3f v = model->vert(face[j]);
-            screen_coords[j] = Vec2i((v.x + 1.) * width / 2., (v.y + 1.) * height / 2.);
-            world_coords[j] = v;
-        }
-        Vec3f n = cross((world_coords[2] - world_coords[0]) ,(world_coords[1] - world_coords[0]));
-        //猜想 012所对应的3个坐标有一定的顺序，这导致了模型前后的三角形是不同的
-        n.normalize();
-        float intensity = n * light_dir;
-        if (intensity > 0) {
-            Vec2i pts[3] = { screen_coords[0], screen_coords[1], screen_coords[2] };
-            triangle(pts, image, TGAColor(intensity * 255, intensity * 255, intensity * 255, 255));
-        }
-    }
 
-    image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
-    image.write_tga_file("output.tga");
+    TGAImage render(width, 16, TGAImage::RGB);
+    int ybuffer[width];
+    for (int i = 0; i < width; i++) {
+        ybuffer[i] = std::numeric_limits<int>::min();//填充为最小
+    }
+    rasterize(Vec2i(20, 34), Vec2i(744, 400), render, red, ybuffer);
+    rasterize(Vec2i(120, 434), Vec2i(444, 400), render, green, ybuffer);
+    rasterize(Vec2i(330, 463), Vec2i(594, 200), render, blue, ybuffer);
+
+    render.flip_vertically(); // i want to have the origin at the left bottom corner of the image
+    render.write_tga_file("render.tga");
     delete model;
     return 0;
 }
