@@ -63,6 +63,12 @@ std::vector<int> Model::face(int idx) {
     return face;
 }
 
+std::vector<int> Model::uvt(int idx) {
+    std::vector<int> uv;
+    for (int i = 0; i < (int)faces_[idx].size(); i++) uv.push_back(faces_[idx][i][1]);
+    return uv;
+}
+
 Vec3f Model::vert(int i) {
     return verts_[i];
 }

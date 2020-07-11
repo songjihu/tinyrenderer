@@ -5,6 +5,7 @@
 #include "geometry.h"
 #include "iostream"
 #include <algorithm>
+#include <stdlib.h>
 
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red = TGAColor(255, 0, 0, 255);
@@ -14,12 +15,14 @@ Model* model = NULL;
 Model* model_texture = NULL;
 const int width = 800;
 const int height = 800;
+int t_w = 0;
+int t_h = 0;
 
 
 int main(int argc, char** argv);
 
 void line(Vec2i t0, Vec2i t1, TGAImage& image, TGAColor color);
-void triangle(Vec3i* pts, float* zbuffer, TGAImage& image, TGAColor color);
+void triangle(Vec3i* pts, float* zbuffer, TGAImage& image, TGAColor color, Vec3f* puvs);//加入对应点的材质坐标
 
 //输入 三角形的3个顶点 待判断点P
 Vec3f barycentric(Vec3i* pts, Vec3f P) {
@@ -51,16 +54,23 @@ int main(int argc, char** argv) {
 
 
     TGAImage image(width, height, TGAImage::RGB);
+    TGAImage image_t(width, height, TGAImage::RGB);
     Vec3f light_dir(0, 0, -1);
     for (int i = 0; i < model->nfaces(); i++) {
         std::vector<int> face = model->face(i);
+        std::vector<int> uvt = model->uvt(i);
         Vec3i screen_coords[3];
         Vec3f world_coords[3];
-        Vec2f uv= model->uv(face[0]);
+        Vec3f puvs[3];
         for (int j = 0; j < 3; j++) {
             Vec3f v = model->vert(face[j]);
-            screen_coords[j] = Vec3i((v.x + 1.) * width / 2., (v.y + 1.) * height / 2.,v.z*100);
+            Vec2f uv = model->uv(uvt[j]);
+
+            //std::cout << face[j] << uv.x << " " << uv.y << std::endl;
+
+            screen_coords[j] = Vec3i((v.x + 1.) * width / 2., (v.y + 1.) * height / 2., v.z * 100);
             world_coords[j] = v;
+            puvs[j] = Vec3f(uv.x, uv.y, 0.f);
         }
         Vec3f n = cross((world_coords[2] - world_coords[0]), (world_coords[1] - world_coords[0]));
         //猜想 012所对应的3个坐标有一定的顺序，这导致了模型前后的三角形是不同的
@@ -70,12 +80,14 @@ int main(int argc, char** argv) {
             Vec3i pts[3] = { screen_coords[0], screen_coords[1], screen_coords[2] };
             //int color_r = 255, color_g = 255, color_b = 255;
             //triangle(pts, zbuffer, image, TGAColor(intensity * color_r, intensity * color_g, intensity * color_b, 255));
-            triangle(pts, zbuffer, image, model->diffuse(uv));
+            triangle(pts, zbuffer, image, model->diffuse(Vec2f(puvs[0].x, puvs[0].y)), puvs);
         }
 
     }
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
     image.write_tga_file("output.tga");
+    image_t.flip_vertically(); // i want to have the origin at the left bottom corner of the image
+    image_t.write_tga_file("output_t.tga");
     delete model;
     return 0;
 }
@@ -114,7 +126,7 @@ void line(Vec2i t0, Vec2i t1, TGAImage& image, TGAColor color) {
 }
 
 //加入z坐标
-void triangle(Vec3i* pts, float* zbuffer, TGAImage& image, TGAColor color) {
+void triangle(Vec3i* pts, float* zbuffer, TGAImage& image, TGAColor color, Vec3f* puvs) {
     Vec2i bboxmin(image.get_width() - 1, image.get_height() - 1);
     Vec2i bboxmax(0, 0);
     Vec2i clamp(image.get_width() - 1, image.get_height() - 1);
@@ -135,8 +147,16 @@ void triangle(Vec3i* pts, float* zbuffer, TGAImage& image, TGAColor color) {
             for (int i = 0; i < 3; i++) P.z += pts[i][2] * bc_screen[i];
             if (zbuffer[int(P.x + P.y * width)] < P.z) {
                 zbuffer[int(P.x + P.y * width)] = P.z;
-                image.set(P.x, P.y, color);
-            }
+                //image.set(P.x, P.y, color);
+                //根据比例求出三角形内的纹理坐标
+                Vec2f uv = Vec2f(0.f, 0.f);
+                for (int j = 0; j < 3; j++) {
+                    uv[0] += puvs[j][0] * bc_screen[j];
+                    uv[1] += puvs[j][1] * bc_screen[j];
+                }
+                //Vec2f uv = Vec2f(puvs[0].x, puvs[0].y)
+                image.set(P.x, P.y, model->diffuse(uv));
+            } 
         }
     }
 }
