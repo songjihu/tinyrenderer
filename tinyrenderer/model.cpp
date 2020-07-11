@@ -95,6 +95,10 @@ Vec3f Model::normal(Vec2f uvf) {
     return res;
 }
 
+Vec2f Model::uv(int i) {
+    return uv_[i];
+}
+
 Vec2f Model::uv(int iface, int nthvert) {
     return uv_[faces_[iface][nthvert][1]];
 }

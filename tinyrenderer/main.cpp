@@ -11,9 +11,12 @@ const TGAColor red = TGAColor(255, 0, 0, 255);
 const TGAColor green = TGAColor(0, 128, 0, 255);
 
 Model* model = NULL;
+Model* model_texture = NULL;
 const int width = 800;
 const int height = 800;
 
+
+int main(int argc, char** argv);
 
 void line(Vec2i t0, Vec2i t1, TGAImage& image, TGAColor color);
 void triangle(Vec3i* pts, float* zbuffer, TGAImage& image, TGAColor color);
@@ -37,6 +40,7 @@ int main(int argc, char** argv) {
         model = new Model(argv[1]);
     }
     else {
+        //model = new Model("obj/african_head/african_head.obj");
         model = new Model("obj/african_head/african_head.obj");
     }
 
@@ -52,6 +56,7 @@ int main(int argc, char** argv) {
         std::vector<int> face = model->face(i);
         Vec3i screen_coords[3];
         Vec3f world_coords[3];
+        Vec2f uv= model->uv(face[0]);
         for (int j = 0; j < 3; j++) {
             Vec3f v = model->vert(face[j]);
             screen_coords[j] = Vec3i((v.x + 1.) * width / 2., (v.y + 1.) * height / 2.,v.z*100);
@@ -63,11 +68,12 @@ int main(int argc, char** argv) {
         float intensity = n * light_dir;
         if (intensity > 0) {
             Vec3i pts[3] = { screen_coords[0], screen_coords[1], screen_coords[2] };
-            triangle(pts, zbuffer, image, TGAColor(intensity * 255, intensity * 255, intensity * 255, 255));
+            //int color_r = 255, color_g = 255, color_b = 255;
+            //triangle(pts, zbuffer, image, TGAColor(intensity * color_r, intensity * color_g, intensity * color_b, 255));
+            triangle(pts, zbuffer, image, model->diffuse(uv));
         }
 
     }
-
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
     image.write_tga_file("output.tga");
     delete model;

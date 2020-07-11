@@ -24,6 +24,7 @@ public:
     Vec3f normal(Vec2f uv);
     Vec3f vert(int i);
     Vec3f vert(int iface, int nthvert);
+    Vec2f uv(int i);
     Vec2f uv(int iface, int nthvert);
     TGAColor diffuse(Vec2f uv);
     float specular(Vec2f uv);
