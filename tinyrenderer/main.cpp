@@ -22,13 +22,44 @@ const int depth = 255;
 int t_w = 0;
 int t_h = 0;
 
+
 Vec3f camera(0, 0, 3);
 
 
 int main(int argc, char** argv);
 
 void line(Vec2i t0, Vec2i t1, TGAImage& image, TGAColor color);
-void triangle(Vec3i* pts, float* zbuffer, TGAImage& image, TGAColor color, Vec3f* puvs, float intensity);//加入对应点的材质坐标
+void triangle(Vec3f t0, Vec3f t1, Vec3f t2, float ity0, float ity1, float ity2, TGAImage& image, int* zbuffer) {
+    if (t0.y == t1.y && t0.y == t2.y) return; // i dont care about degenerate triangles
+    if (t0.y > t1.y) { std::swap(t0, t1); std::swap(ity0, ity1); }
+    if (t0.y > t2.y) { std::swap(t0, t2); std::swap(ity0, ity2); }
+    if (t1.y > t2.y) { std::swap(t1, t2); std::swap(ity1, ity2); }
+
+    int total_height = t2.y - t0.y;
+    for (int i = 0; i < total_height; i++) {
+        bool second_half = i > t1.y - t0.y || t1.y == t0.y;
+        int segment_height = second_half ? t2.y - t1.y : t1.y - t0.y;
+        float alpha = (float)i / total_height;
+        float beta = (float)(i - (second_half ? t1.y - t0.y : 0)) / segment_height; // be careful: with above conditions no division by zero here
+        Vec3i A = t0 + Vec3f(t2 - t0) * alpha;
+        Vec3i B = second_half ? t1 + Vec3f(t2 - t1) * beta : t0 + Vec3f(t1 - t0) * beta;
+        float ityA = ity0 + (ity2 - ity0) * alpha;
+        float ityB = second_half ? ity1 + (ity2 - ity1) * beta : ity0 + (ity1 - ity0) * beta;
+        if (A.x > B.x) { std::swap(A, B); std::swap(ityA, ityB); }
+        for (int j = A.x; j <= B.x; j++) {
+            float phi = B.x == A.x ? 1. : (float)(j - A.x) / (B.x - A.x);
+            Vec3i    P = Vec3f(A) + Vec3f(B - A) * phi;
+            float ityP = ityA + (ityB - ityA) * phi;
+            int idx = P.x + P.y * width;
+            if (P.x >= width || P.y >= height || P.x < 0 || P.y < 0) continue;
+            if (zbuffer[idx] < P.z) {
+                zbuffer[idx] = P.z;
+                image.set(P.x, P.y, TGAColor(255, 255, 255) * ityP);
+            }
+        }
+    }
+}
+
 
 
 Vec3f m2v(Matrix m) {
@@ -56,6 +87,21 @@ Matrix viewport(int x, int y, int w, int h) {
     return m;
 }
 
+Matrix lookat(Vec3f eye, Vec3f center, Vec3f up) {
+    Vec3f z = (eye - center).normalize();
+    Vec3f x = cross(up, z).normalize();
+    Vec3f y = cross(z, x).normalize();
+    Matrix Minv = Matrix::identity(4);
+    Matrix Tr = Matrix::identity(4);
+    for (int i = 0; i < 3; i++) {
+        Minv[0][i] = x[i];
+        Minv[1][i] = y[i];
+        Minv[2][i] = z[i];
+        Tr[i][3] = -center[i];
+    }
+    return Minv * Tr;
+}
+
 
 //输入 三角形的3个顶点 待判断点P
 Vec3f barycentric(Vec3i* pts, Vec3f P) {
@@ -69,6 +115,8 @@ Vec3f barycentric(Vec3i* pts, Vec3f P) {
 }
 
 
+
+
 int main(int argc, char** argv) {
 
 
@@ -80,19 +128,24 @@ int main(int argc, char** argv) {
         model = new Model("obj/african_head/african_head.obj");
     }
 
-    float* zbuffer = new float[width * height];
+    int* zbuffer = new int[width * height];
     for (int i = 0; i < width * height; i++) {
-        zbuffer[i] = -std::numeric_limits<float>::max();
+        zbuffer[i] = -std::numeric_limits<int>::max();
     }
-
+    Vec3f eye(1, 1, 3);
+    Vec3f center(0, 0, 0);
+    Matrix ModelView = lookat(eye, center, Vec3f(0, 1, 0));
     Matrix Projection = Matrix::identity(4);
     Matrix ViewPort = viewport(width / 8, height / 8, width * 3 / 4, height * 3 / 4);
-    Projection[3][2] = -1.f / camera.z;
-
+    //Matrix ViewPort = viewport(width / 4, height / 4, width * 3 / 2, height * 3 / 2);
+    Projection[3][2] = -1.f / (eye - center).norm();
+    //Projection[3][0] = -1.f / camera.z;
+    
+    float intensity[3];
 
     TGAImage image(width, height, TGAImage::RGB);
     TGAImage image_t(width, height, TGAImage::RGB);
-    Vec3f light_dir(0, 0, -1);
+    Vec3f light_dir = Vec3f(1, -1, 1).normalize();
     for (int i = 0; i < model->nfaces(); i++) {
         std::vector<int> face = model->face(i);
         std::vector<int> uvt = model->uvt(i);
@@ -106,19 +159,22 @@ int main(int argc, char** argv) {
             //std::cout << face[j] << uv.x << " " << uv.y << std::endl;
 
             //screen_coords[j] = Vec3i((v.x + 1.) * width / 2., (v.y + 1.) * height / 2., v.z * 100);
-            screen_coords[j] = m2v(ViewPort * Projection * v2m(v));
+            screen_coords[j] = m2v(ViewPort * Projection * ModelView * v2m(v));
+            //screen_coords[j] = m2v(ViewPort * Projection * v2m(v));
             world_coords[j] = v;
+            intensity[j] = model->normal(i, j) * light_dir;
             puvs[j] = Vec3f(uv.x, uv.y, 0.f);
         }
         Vec3f n = cross((world_coords[2] - world_coords[0]), (world_coords[1] - world_coords[0]));
         //猜想 012所对应的3个坐标有一定的顺序，这导致了模型前后的三角形是不同的
         n.normalize();
-        float intensity = n * light_dir;
+        
         if (intensity > 0) {
             Vec3i pts[3] = { screen_coords[0], screen_coords[1], screen_coords[2] };
             //int color_r = 255, color_g = 255, color_b = 255;
             //triangle(pts, zbuffer, image, TGAColor(intensity * color_r, intensity * color_g, intensity * color_b, 255));
-            triangle(pts, zbuffer, image, model->diffuse(Vec2f(puvs[0].x, puvs[0].y)), puvs, intensity);
+            //triangle(pts, zbuffer, image, model->diffuse(Vec2f(puvs[0].x, puvs[0].y)), puvs, intensity);
+            triangle(screen_coords[0], screen_coords[1], screen_coords[2], intensity[0], intensity[1], intensity[2], image, zbuffer);
         }
 
     }
@@ -163,6 +219,9 @@ void line(Vec2i t0, Vec2i t1, TGAImage& image, TGAColor color) {
     }
 }
 
+
+
+/*
 //加入z坐标
 void triangle(Vec3i* pts, float* zbuffer, TGAImage& image, TGAColor color, Vec3f* puvs ,float intensity) {
 
@@ -197,9 +256,12 @@ void triangle(Vec3i* pts, float* zbuffer, TGAImage& image, TGAColor color, Vec3f
                 }
                 TGAColor color = model->diffuse(uv);
                 //Vec2f uv = Vec2f(puvs[0].x, puvs[0].y)
-                image.set(P.x, P.y, TGAColor(color.bgra[2] * intensity, color.bgra[1] * intensity, color.bgra[0] * intensity));
-                //image.set(P.x, P.y, color);
+                //image.set(P.x, P.y, TGAColor(color.bgra[2] * intensity, color.bgra[1] * intensity, color.bgra[0] * intensity));
+                //image.set(P.x, P.y, color * intensity);
+                image.set(P.x, P.y, color);
+                //image.set(P.x, P.y, TGAColor(white.bgra[2] * intensity, white.bgra[1] * intensity, white.bgra[0] * intensity,color.bgra[3]));
             } 
         }
     }
 }
+*/
